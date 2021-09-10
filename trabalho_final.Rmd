@@ -1,0 +1,245 @@
+---
+title: "Cauda longa nos Jogos olímpicos"
+date: "`r Sys.Date()`"
+author: "Victor Nunes Toscano"
+output:
+  rmdformats::robobook:
+    highlight: kate
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(rmdformats)
+library(tidyverse)
+library(patchwork)
+
+source("carregar_ajustes.R")
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=FALSE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+# Introdução
+
+O termo "cauda longa" viralizou após a publicação do livro A Cauda Longa -- Do mercado de massa para o mercado de nicho de Chris Anderson. A expressão ganhou força a partir da análise dos mercados relacionados à internet, os quais podem atender diferentes níveis de interesse do consumidor, do mais genérico ao mais específico. Estes interesses poderiam coexistir neste mercado de proporções gigantescas atendendo a uma enorme diversidade da demanda proporcionada pela internet.
+
+Do ponto de vista estatístico, identifica-se uma distribuição de "cauda longa" quando há um de informações e dados é classificado de forma decrescente, concentrando-os mais frequentes no início da distribuição. Esse tipo de padrão foi muito utilizado ao analisar as estratégias de grandes empresas *.com* como a Amazon.com, a Apple e o Netflix, conforme apontado pelo próprio Cris Anderson em um artigo publicado na revista Wired.
+
+A figura abaixo ilustra de forma lúdica o conceito de calda longa, demonstrando qual é o tipo de padrão gráfico podemos encontrar em fenômenos do tipo.
+
+![Imagem ilustrativa da calda longa](https://www.oficinadanet.com.br/imagens/coluna/2862/longtail.jpg)
+
+Muito outros autores buscaram aplicar esse conceito em outras áreas do conhecimento como no caso de concentração populacional em cidades, expansão da área urbanizada, concentração de riqueza entre outros temas nem sempre relacionados com a internet. De forma geral, estudos relacionados à *rankings* são mais antigos do que a era da internet e são, muitas vezes, relacionados a linguística, como é o caso da lei de Zipf. Essa "lei" aponta para uma relação inversa entre a posição e a sua frêquência. Essa lei por muitas vezes usada em diversos campos do conhecimento, nos permite a decifrar padrões de comportamentos sejam linguíticos ou não nos mais diversos contextos.
+
+Portanto, este trabalho busca verificar se é possível observar este padrão estatístico nos dados históricos das olimpíadas de verão por mais de 100 anos, de 1896 a 2016.
+
+O trabalho está dividido em mais três seções além dessa introdução. A seção seguinte apresenta a base de dados e as transformações realizadas e inicia a exploração de algumas estatísticas descritivas por país participante. Na seção seguinte apresenta-se a estratégia empírica de estimação deste trabalho, aprofundando o modelo teórico conhecido como Lei de Zipf. Por fim, apresentamos algumas conclusões acerca dos achados deste estudo empírico.
+
+# Dados utilizados e análise exploratória
+
+Os dados utilizados neste trabalho foram extraídos pelos colaboradores do podcast de ciência de dados *tidytueday*. Toda semana o podcast lança um desafios de visualização de dados para a comunidade de cientistas de dados e na 31ª semana de 2021 o tema foi das olimpíadas. Esta base de dados incluem os jogos olímpicos realizados desde 1896 en Atenas até 2016 no Rio de Janeiro. Os dados foram obtidos para um desafio da plataforma Kaggle, que além da divulgação da ciência de dados, lançam desafios para cientistas de todo mundo mostrarem suas habilidades. Os dados foram *raspados* do site <http://www.sports-reference.com> em maio de 2018 e hoje podem ser encontrados em <http://www.olympedia.org/>.
+
+Como descrito na contextualização do desafio, esta base de dados é resultado de um trabalho imenso de pesquisadores de um grupo de entusiastas da história das olimpíadas, que se autodenominam 'statistorians'. Graças as este trabalho, mais de 100 anos de história olímpica puderam ser analisados.
+
+Todo esse esforço é proporcional ao denominado maior evento esportivo do planeta. Nos gráficos o abaixo é possível notar a amplitude que as olimpíadas adquiriram ao longo desses anos. Em número de atletas foi um salto de 176 em 1896 para 11.179 em 2016, número 63 vezes maior em relação primeira edição analisada. Note três grandes quedas do número de atletas participantes. Na edição de 1932 cediada em Los Angeles, a redução foi atribuída à distância e ao custo de transporte das delegações. Já nos anos de 1956 (realizada em Melbourne - AUS) e 1980 (realizada em Moscou), os boicotes foram em resposta a tensões provocadas pela Guerra Fria.
+
+```{r}
+g1 <- olympics %>% 
+  filter(season=="Summer") %>% 
+  group_by(year) %>% 
+  summarise(n_atletas = n_distinct(id)) %>%
+  ungroup() %>% 
+  ggplot()+
+  aes(y = n_atletas, x = year)+
+  geom_line() + 
+  gghighlight::gghighlight(
+    year == 2016L,
+    label_key = n_atletas,
+    label_params = list(size = 3)
+  ) +
+  labs(
+    title = "Evolução do total de atletas participantes",
+    x = "Edições",
+    y = "Nº de atletas"
+  )+
+  ggthemes::theme_hc()
+plotly::ggplotly(g1)
+```
+
+O mesmo pode ser observar quando analisa-se a quantidade de países participantes que passaram de 12 em 1896 para 207 em 2016.
+
+```{r}
+g2 <- olympics %>% 
+  filter(season=="Summer") %>% 
+  group_by(year) %>% 
+  summarise(n_paises = n_distinct(noc)) %>%
+  ungroup() %>% 
+  ggplot()+
+  aes(y = n_paises, x = year)+
+  geom_line()+
+  gghighlight::gghighlight(
+    year == 2016L,
+    label_key = n_paises,
+    label_params = list(size = 3)
+  ) +
+  labs(
+    title = "Evolução do total de países participantes",
+    x = "Edições",
+    y = "Nº de países"
+  )+
+  ggthemes::theme_hc()
+
+plotly::ggplotly(g2)
+```
+
+Para este estudo a base de dados foi agregada por países, calculando a quantidade de medalhas de cada tipo em cada uma das edições das olimpíadas de verão realizadas. Permaneceram na base, apenas os países que ganharam ao menos uma medalha, de qualquer tipo. A análise exploratória dessa base será feita na subseção a seguir.
+
+## Quadro de medalhas por país
+
+O quadro de medalhas em cada edição da olimpíada é sempre um item de grande interesse. Através dele que os resultados de anos de treinamento podem ser expressados e que muitas vezes significam muito mais do que quantidades de primeiros, segundos e terceiros lugares. Sob um outro aspecto, materializa-se nas olimpíadas disputas geopolíticas importantes. Apenas a título de exemplo, se levarmos em consideração o quadro geral de medalhas de mais um século de jogos, as potências olímpicas foram lideradas por Estados Unidos e União Soviética. Logicamente, não é uma comparação justa, uma vez que compara-se com um país que subdividido com é o caso da União Soviética, mas que sem dúvida representou uma das maiores disputas geopolíticas da história recente.
+
+**Tabela com os países que ganharam mais medalhas - 1896 a 2016**
+
+```{r}
+  kable(head(base_paises,10))
+```
+
+O quadro geral de medalhas é liderado pelos Estados Unidos, com mais de 5 mil medalhas, sendo quase a metade de ouro. A União Soviética figura em segundo lugar com 2063 medalhas, menos da metade de medalhas do segundo lugar.
+
+```{r}
+kable(round(pastecs::stat.desc(base_paises[2:5])))
+```
+
+As estatísticas descritivas também fornecem *insights*\* interessantes. O mais evidente é a discrepância entre as médias e medianas, denotando uma assimetria considerável da distribuição. Enquanto a média de medalhas é de 360 por país a mediana é de 78, com uma forte dispersão medida pelo desvio padrão (670 medalhas). Dito isso, o exame do gráfico abaixo pode confirmar o padrão de cauda longa.
+
+```{r}
+olympics %>% select(noc, id, medal) %>% 
+  filter(!is.na(medal)) %>% 
+  group_by(noc) %>% 
+  summarise(n_medalhas = n()) %>% 
+  ungroup() %>% 
+  arrange(-n_medalhas) %>%
+  mutate(posicao = 1:149) %>% 
+  ggplot() +
+  aes(x = posicao, y = n_medalhas)+
+  geom_point()+
+  gghighlight::gghighlight(
+    posicao == 1L:2L,
+    label_key = noc,
+    label_params = list(size = 3)
+  )+
+  labs(
+    title = "Distribuição de medalhas olímpicas segundo países",
+    subtitle = "Soma de medalhas de 1986 a 2016",
+    x = "Posições",
+    y = "Nº de medalhas"
+  )+
+  ggthemes::theme_hc()
+```
+
+A próxima seção busca estimar se a Lei de Zipf é válida no caso dos jogos olímpicos de verão.
+
+# Discução teórica e a estratégia empírica
+
+A Lei de Zipf[^1] é uma lei empírica formulada utilizando estatísticas matemáticas que se refere ao fato de que para muitos tipos de dados estudados nas ciências físicas e sociais, a distribuição de frequência de classificação é uma relação inversa.
+
+[^1]: Este texto foi adaptado da Wikipedia.
+
+A lei de Zipf foi originalmente formulada em termos de linguística quantitativa, afirmando que, dado algum corpus de expressões linguísticas naturais, a frequência de qualquer palavra é inversamente proporcional à sua classificação na tabela de frequências. Assim, a palavra mais frequente ocorrerá aproximadamente duas vezes mais frequentemente do que a segunda palavra mais frequente, três vezes mais vezes que a terceira palavra mais frequente, e assim sucessivamente.
+
+Ainda há uma grande discussão entre os estudiosos se é possível determinar uma causa desse fenômeno.
+
+Trata-se de uma lei de potências sobre a distribuição de valores de acordo com o nº de ordem numa lista. Numa lista, o membro n teria uma relação de valor com o 1º da lista segundo 1/n. Por exemplo, em um idioma, a frequência com que surgem as diversas palavras segue uma distribuição que se pode aproximar por:
+
+${P_{n}\sim 1/n^{\alpha}}$
+
+onde $Pn$ representa a frequência de uma palavra ordenada na n-ésima posição e o expoente a é próximo da **unidade**. Isto significa que o segundo elemento se repetirá aproximadamente com uma frequência que é metade da do primeiro, e o terceiro elemento com uma frequência de 1/3 e assim sucessivamente.
+
+Para verificar este padrão utilizaremos o modelo de mínimos quadrados ordinários (MMQO) em sua forma log-log sob a seguinte especificação:
+
+${ln(P) = ln(A)-\alpha * ln(Nmedal)}$
+
+onde, $P$ é a posição no quadro de medalhas, $A$ é uma constante e $Nmedal$ é o número de medalhas conquistados pelos países ao longo deste período. Nesse contexto, o coeficiente é o $\alpha$ que para atender os requisitos da lei de zipf tem que ter as seguintes características: ser próximo a unidade (1) e ser negativo.
+
+```{r}
+zipf1 <- lm(formula = log2(`Posição`) ~ log2(`Total de medalhas`), data = base_paises)
+summary(zipf1)
+```
+
+Conforme é possível notar apenas a condição do coeficiente negativo foi plenamente atendida. O coeficiente -0.45, apesar de ser estatisticamente diferente de 0, não está próximo à 1. Isso significa que apesar de atender a um requisito da lei de potências, em especial a distribuição de pareto, a distribuição de medalhas por países não assume o padrão da lei de zipf.
+
+Na seção seguinte, testaremos o mesmo modelo para olhando para as medalhas conquistadas pelos atletas, como forma de buscar os mesmos padrões para este contexto.
+
+## Quadro de atletas
+
+O quadro de medalhas como esperado é dominado por atletas dos Estados Unidos e da União Soviética, sendo o maior medalhista olémpico o nadador Michael Phelps conquistando 28 medalhas, 10 a mais que a segunda colocada a ginasta sovietica Larysa Latynina.
+
+```{r}
+kable(head(base_atletas,10))
+```
+
+O padrao de cauda longa tambem se repete graficamente ao analisarmos o quadro de medalhas por atletas. Resta-nos saber se a lei de Zipf se aplica neste contexto.
+
+```{r}
+olympics %>% select(noc, name, medal) %>% 
+  filter(!is.na(medal)) %>% 
+  group_by(name) %>% 
+  summarise(n_medalhas = n()) %>% 
+  ungroup() %>% 
+  arrange(-n_medalhas) %>%
+  mutate(posicao = 1:28202) %>% 
+  ggplot() +
+  aes(x = posicao, y = n_medalhas)+
+  geom_point()+
+  gghighlight::gghighlight(
+    posicao == 1L:2L,
+    label_key = name,
+    label_params = list(size = 3)
+  )+
+  labs(
+    title = "Distribuição de medalhas olímpicas segundo atletas",
+    subtitle = "Soma de medalhas de 1986 a 2016",
+    x = "Posições",
+    y = "Nº de medalhas"
+  )+
+  ggthemes::theme_hc()
+```
+
+O modelo estimado e o mesmo que o anterior, com a diferença de que a unidade de análise são os atletas.
+
+```{r}
+zipf2 <- lm(formula = log2(`Posição`) ~ log2(`Total de medalhas`), data = base_atletas)
+summary(zipf2)
+```
+
+Novamente, a lei de Zipf não pôde ser verificada no caso dos atletas. E assim como no caso dos países, o coeficiente é negativo, mas ao contrário do primeiro modelo, sua magnitude se encontra muito acima da unidade (-2.29). Esse coeficiente demonstra que no caso de medalhas, a concentração é ainda maior que se analisarmos em relação aos países.
+
+# Conclusões
+
+1.  É possível observar um padrão de uma distribuição de cauda longa em relação aos dados dos jogos olímpicos de verão de 1896 a 2016, com forte concentração de medalhas em poucos países;
+
+2.  Ao analisar uma distribuição específica, denominada Lei de Zipf, a distribuição de medalhas por países não atende todos os requisitos da construção teórica desta função. Entretanto, o coeficiente estimado demonstra um padrão de concentração de medalhas, mas que é melhor distribuído entre os países;
+
+3.  No caso do quadro de medalhas por atletas, os requisitos teóricos da distribuição de Zipf também não são totalmente atingidos, no entanto, com a estimação do coeficiente aponta para um padrão de concentração muito maior em comparação o quadro de medalhas por países;
+
+4.  Estudos futuros podem buscar estimar esses padrões em edições específicas das olimpíadas, incluindo também as olimpíadas de inverno, por exemplo.
+
+# Referências
+
+ANDERSON, C. . A Cauda Longa. Brasil: Elsevier. 2006.
+
+GABAIX, X. Zipf's Law for cities: an explanation. Quarterly Journal of Economics, v.114, n.3, p.739- 767, Aug.1999.
+
+LEI DE ZIPF. In: WIKIPÉDIA, a enciclopédia livre. Flórida: Wikimedia Foundation, 2021. Disponível em: <https://pt.wikipedia.org/w/index.php?title=Lei_de_Zipf&oldid=61153905>. Acesso em: 15 mai. 2021.
+
+MAGALHÃES, M.A.; TOSCANO, V.N. Concentração de investimentos e interiorização do desenvolvimento no Espírito Santo. Texto para Discussão n.11, IJSN, fev.2010, 22p. (2010a). (Disponível em:<http://www.ijsn.es.gov.br/attachments/313_td11.pdf>).
+
+MAGALHÃES, M.A.; TOSCANO, V.N. Distribuições em cauda longa e comércio internacional: uma investigação empírica de padrões de concentração na pauta de exportações do Espírito Santo, em 1996-2010, Ensaios FEE [Online] 33:2, Nov, 2012
